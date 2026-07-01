@@ -69,5 +69,5 @@ http://127.0.0.1:5000
 
 ## 配置信息
 
-- `.env` 文件用于存放 Flask 服务地址、MQTT 连接信息以及 SQLite 数据库文件地址。
-- `MQTT_PROTOCOL.md` 文件记录了设备与上位机通信时使用的 JSON 数据格式。
+- `.env` 文件用于存放 Flask 服务地址、MQTT 连接信息以及 SQLite 数据库文件地址
+- `MQTT_PROTOCOL.md` 文件记录了设备与上位机通信时使用的 JSON 数据格式
