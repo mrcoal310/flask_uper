@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>温湿度监测与控制系统</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-copy">
+      <h1>温湿度监测与控制系统</h1>
+      <p>当前设备：<b id="active-device-label">{{ product_id }}/{{ default_device_id }}</b> | 服务端：{{ mqtt_host }}:{{ mqtt_port }}</p>
+    </div>
+
+    <section class="device-switcher" aria-label="设备切换与管理">
+      <details id="device-menu" class="device-menu device-combined-menu">
+        <summary class="device-menu-summary">
+          <span class="device-menu-summary-label">设备管理</span>
+          <span class="device-menu-summary-meta">
+            <b id="device-switch-current-name">--</b>
+            <span id="device-switch-current-status" class="device-switch-status is-offline">离线</span>
+            <span class="device-count-meta"><b id="device-count">0</b> 台</span>
+          </span>
+          <span class="device-control-chevron" aria-hidden="true"></span>
+        </summary>
+
+        <div class="device-menu-panel device-combined-panel">
+          <div class="device-panel-section device-unified-panel">
+            <div class="device-panel-title">设备操作</div>
+            <div class="device-manager-row">
+              <input id="device-add-input" type="text" maxlength="128" placeholder="输入新设备 ID" aria-label="输入新设备 ID">
+              <button id="device-add-btn" type="button" class="primary">添加设备</button>
+            </div>
+            <div class="device-current-row" aria-live="polite">
+              <span>当前设备：</span>
+              <b id="device-current-inline">--</b>
+            </div>
+            <div id="device-switch-list" class="device-switch-list" aria-label="设备切换列表"></div>
+          </div>
+        </div>
+      </details>
+    </section>
+  </header>
+
+  <main class="layout">
+    <section class="card status-card">
+      <h2>实时状态</h2>
+      <div class="grid metrics">
+        <div><span>服务连接</span><strong id="mqtt-connected">--</strong></div>
+        <div><span>设备状态</span><strong id="device-online">--</strong></div>
+        <div><span>温度</span><strong id="temperature">--</strong></div>
+        <div><span>湿度</span><strong id="humidity">--</strong></div>
+        <div><span>传感器状态</span><strong id="sensor-ok">--</strong></div>
+        <div><span>设备开关</span><strong id="switch-state">--</strong></div>
+        <div><span>定时器开关</span><strong id="timer-enable">--</strong></div>
+        <div><span>定时动作</span><strong id="timer-action-state">--</strong></div>
+        <div><span>定时剩余时间</span><strong id="timer-remain">--</strong></div>
+        <div><span>上报周期</span><strong id="report-period-state">--</strong></div>
+        <div><span>RSSI</span><strong id="rssi-state">--</strong></div>
+        <div><span>固件版本</span><strong id="fw-ver-state">--</strong></div>
+      </div>
+      <p class="muted">最后通信时间：<span id="last-seen">--</span></p>
+    </section>
+
+    <section class="card control-card">
+      <h2>控制面板</h2>
+      <div class="button-row">
+        <button class="primary" onclick="setSwitch(1)">开启设备</button>
+        <button onclick="setSwitch(0)">关闭设备</button>
+        <button onclick="restartDevice()">重启设备</button>
+        <button onclick="queryStatus()">查询状态</button>
+      </div>
+
+      <h3>延时定时</h3>
+      <div class="form-row">
+        <select id="timer-action">
+          <option value="off">延时关闭</option>
+          <option value="on">延时开启</option>
+        </select>
+        <div class="timer-delay-group">
+          <input id="timer-delay" type="number" min="1" max="86400" value="10">
+          <span>秒</span>
+        </div>
+        <button onclick="setTimer()">设置</button>
+        <button onclick="cancelTimer()">取消定时</button>
+        <button onclick="queryTimer()">查询剩余定时时间</button>
+      </div>
+
+      <h3>参数配置</h3>
+      <div class="form-row wrap">
+        <label>上报周期 <input id="cfg-report-period" type="number" min="2" max="3600" value="5"></label>
+        <label>温度上限阈值 <input id="cfg-temp-high" type="number" step="0.1" value="30"></label>
+        <label>湿度上限阈值 <input id="cfg-humi-high" type="number" step="0.1" value="80"></label>
+        <div class="check-field">
+          <span class="field-title">自动规则</span>
+          <label class="check-option">
+            <input id="cfg-auto-rule" type="checkbox">
+            <span>启用</span>
+          </label>
+        </div>
+        <button onclick="setConfig()">下发配置</button>
+      </div>
+
+      <section id="command-feedback" class="command-feedback is-idle" aria-live="polite">
+        <div class="command-feedback-head">
+          <div>
+            <p class="command-feedback-label">操作状态</p>
+            <h3 id="command-feedback-title">等待操作</h3>
+          </div>
+          <span id="command-feedback-badge" class="command-feedback-badge">就绪</span>
+        </div>
+        <p id="command-feedback-text" class="command-feedback-text">等待用户操作</p>
+      </section>
+    </section>
+
+    <section class="card chart-card wide">
+      <h2>温湿度曲线</h2>
+      <div class="history-toolbar">
+        <label class="history-filter-field">
+          <span>开始日期时间</span>
+          <input id="history-start-at" type="datetime-local" aria-label="开始日期时间">
+        </label>
+        <label class="history-filter-field">
+          <span>结束日期时间</span>
+          <input id="history-end-at" type="datetime-local" aria-label="结束日期时间">
+        </label>
+        <div class="history-filter-actions">
+          <button id="history-query-btn" type="button" class="primary">查询历史</button>
+          <button id="history-reset-btn" type="button">重置条件</button>
+        </div>
+      </div>
+      <p class="muted history-filter-note">可按年月日和时间范围查询当前设备的温湿度存储数据，连续未变化的数据点会自动压缩显示</p>
+      <div class="chart-shell">
+        <canvas id="history-chart"></canvas>
+      </div>
+      <div class="button-row right">
+        <a id="export-link" class="button-link" href="/api/export/telemetry.csv?limit=5000">导出 CSV</a>
+      </div>
+    </section>
+
+    <section class="card wide advanced-card">
+      <details id="advanced-panel" class="advanced-panel">
+        <summary class="advanced-summary">
+          <div class="advanced-copy">
+            <span class="eyebrow">高级视图</span>
+            <h2>MQTT 与状态信息</h2>
+            <p>展开可查看原始状态和消息详情</p>
+          </div>
+          <div class="advanced-side">
+            <div class="advanced-meta">
+              <span class="tag">Topics <b id="topic-count">0</b></span>
+              <span class="tag">消息 <b id="message-count">0</b></span>
+            </div>
+            <span class="advanced-toggle" aria-hidden="true"></span>
+          </div>
+        </summary>
+
+        <div class="advanced-grid">
+          <section class="advanced-block">
+            <div class="section-head">
+              <h3>原始命令</h3>
+              <span class="muted">显示客户端最后一次发送的命令</span>
+            </div>
+            <pre id="last-command" class="console">等待命令...</pre>
+          </section>
+
+          <section class="advanced-block">
+            <div class="section-head">
+              <h3>MQTT Topics</h3>
+              <span class="muted">当前订阅与发布主题</span>
+            </div>
+            <pre id="topic-list" class="console"></pre>
+          </section>
+
+          <section class="advanced-block">
+            <div class="section-head">
+              <h3>最近消息 / 事件</h3>
+              <span class="muted">原始数据查阅</span>
+            </div>
+            <div id="message-list" class="message-list"></div>
+          </section>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script>
+    window.APP_CONFIG = {
+      productId: {{ product_id|tojson }},
+      defaultDeviceId: {{ default_device_id|tojson }}
+    };
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
